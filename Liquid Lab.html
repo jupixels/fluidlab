@@ -1,0 +1,510 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Liquid Lab</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Syne:wght@600;800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: full-bleed WebGL tank, brand + readout floating top-left, one frosted-glass dock floating bottom-center. */
+:root{
+  color-scheme:dark;
+  --ink:#0b1217;
+  --ink-2:#13202a;
+  --glass:rgba(220,240,248,.075);
+  --glass-hi:rgba(220,240,248,.16);
+  --rim:rgba(225,245,255,.2);
+  --fg:#e7f1f4;
+  --fg-dim:rgba(231,241,244,.58);
+  --accent:#8ff0dc;
+  --display:"Syne","Avenir Next","Segoe UI",system-ui,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+}
+html,body{height:100%}
+body{background:var(--ink);color:var(--fg);font-family:var(--mono);overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none}
+#gl{position:fixed;inset:0;width:100%;height:100%;display:block;cursor:crosshair}
+.brand{position:fixed;top:calc(16px + env(safe-area-inset-top,0px));left:max(16px,env(safe-area-inset-left,0px));display:grid;gap:4px;pointer-events:none}
+.brand h1{margin:0;font-family:var(--display);font-weight:800;font-size:22px;letter-spacing:-.01em;line-height:1}
+.brand h1 span{color:var(--accent)}
+.readout{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-dim);font-variant-numeric:tabular-nums}
+.dock{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(16px + env(safe-area-inset-bottom,0px));
+  width:max-content;max-width:calc(100% - 2 * max(16px,env(safe-area-inset-left,0px)));
+  display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:10px;padding:10px;border-radius:22px;
+  background:var(--glass);border:1px solid var(--rim);
+  box-shadow:0 1px 0 rgba(255,255,255,.18) inset,0 18px 50px rgba(0,0,0,.45);
+  -webkit-backdrop-filter:blur(18px) saturate(170%);backdrop-filter:blur(18px) saturate(170%)}
+.seg{display:flex;gap:2px;padding:3px;border-radius:14px;background:rgba(0,0,0,.22)}
+.seg button,.solo{appearance:none;border:0;background:transparent;color:var(--fg-dim);font:500 12px/1 var(--mono);letter-spacing:.04em;
+  padding:9px 11px;border-radius:11px;cursor:pointer;transition:background .2s,color .2s,transform .12s;white-space:nowrap}
+.seg button:hover,.solo:hover{color:var(--fg)}
+.seg button[aria-pressed="true"]{background:var(--glass-hi);color:var(--fg);box-shadow:0 1px 0 rgba(255,255,255,.22) inset}
+.solo{background:rgba(0,0,0,.22);padding:12px 13px}
+.solo:active,.seg button:active{transform:scale(.95)}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.swatch{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:1px;box-shadow:0 0 0 1px rgba(255,255,255,.3) inset}
+.hint{position:fixed;top:calc(18px + env(safe-area-inset-top,0px));right:max(16px,env(safe-area-inset-right,0px));font-size:11px;color:var(--fg-dim);text-align:right;line-height:1.6;pointer-events:none;max-width:46ch}
+kbd{font:inherit;padding:1px 5px;border:1px solid var(--rim);border-radius:5px}
+.fallback{position:fixed;inset:0;display:grid;place-items:center;padding:16px;text-align:center;font-size:14px}
+@media (max-width:640px){.hint{display:none}.seg button{padding:8px 8px;font-size:11px}.dock{gap:6px;padding:8px}}
+</style>
+
+<canvas id="gl" aria-label="Liquid simulation. Drag to interact."></canvas>
+<div class="brand"><h1>Liquid<span>.</span>Lab</h1><div class="readout" id="readout">—</div></div>
+<div class="hint">Drag to play · <kbd>←</kbd><kbd>→</kbd> tilt · <kbd>Space</kbd> shake · <kbd>1</kbd>–<kbd>5</kbd> liquids</div>
+<div class="dock" role="toolbar" aria-label="Controls">
+  <div class="seg" id="tools" aria-label="Tool">
+    <button data-tool="stir" aria-pressed="true">Stir</button>
+    <button data-tool="swirl" aria-pressed="false">Swirl</button>
+    <button data-tool="repel" aria-pressed="false">Repel</button>
+    <button data-tool="pour" aria-pressed="false">Pour</button>
+  </div>
+  <div class="seg" id="liquids" aria-label="Liquid">
+    <button data-liq="glass" aria-pressed="true"><i class="swatch" style="background:#bfefff"></i>Glass</button>
+    <button data-liq="mercury" aria-pressed="false"><i class="swatch" style="background:#b9c2c8"></i>Mercury</button>
+    <button data-liq="jelly" aria-pressed="false"><i class="swatch" style="background:#ff6c9c"></i>Jelly</button>
+    <button data-liq="honey" aria-pressed="false"><i class="swatch" style="background:#ffa42a"></i>Honey</button>
+    <button data-liq="milk" aria-pressed="false"><i class="swatch" style="background:#f7f4ee"></i>Milk</button>
+  </div>
+  <button class="solo" id="grav" title="Gravity mode">Gravity: Down</button>
+  <button class="solo" id="shake">Shake</button>
+  <button class="solo" id="reset">Refill</button>
+</div>
+<script>
+// ---- SIM START ----
+function createSim(MAXN){
+  const S={n:0,W:800,H:600,h:28,
+    px:new Float32Array(MAXN),py:new Float32Array(MAXN),
+    vx:new Float32Array(MAXN),vy:new Float32Array(MAXN),
+    ox:new Float32Array(MAXN),oy:new Float32Array(MAXN),
+    sp:new Float32Array(MAXN),
+    gx:0,gy:1,gStrength:1,gMode:'down',
+    p:{k:0.09,kNear:0.35,rho0:5,sigma:0.0,beta:0.06,maxV:0.5},
+    ptr:{active:false,x:0,y:0,vx:0,vy:0,tool:'stir'},
+    head:null,next:new Int32Array(MAXN),cols:0,rows:0,
+    nbJ:new Int32Array(256),nbQ:new Float32Array(256),nbX:new Float32Array(256),nbY:new Float32Array(256)
+  };
+  S.resize=function(W,H){
+    S.W=W;S.H=H;S.h=Math.max(16,Math.min(40,Math.min(W,H)/24));
+    S.cols=Math.ceil(W/S.h)+1;S.rows=Math.ceil(H/S.h)+1;
+    S.head=new Int32Array(S.cols*S.rows);
+    for(let i=0;i<S.n;i++){S.px[i]=Math.min(Math.max(S.px[i],2),W-2);S.py[i]=Math.min(Math.max(S.py[i],2),H-2);S.ox[i]=S.px[i];S.oy[i]=S.py[i];}
+  };
+  S.add=function(x,y,vx,vy){
+    if(S.n>=MAXN)return;const i=S.n++;
+    S.px[i]=x;S.py[i]=y;S.ox[i]=x-vx;S.oy[i]=y-vy;S.vx[i]=vx;S.vy[i]=vy;S.sp[i]=0;
+  };
+  // dam-break: a block of liquid on the left that collapses on load
+  S.fill=function(frac){
+    S.n=0;const s=S.h*0.42;
+    const bw=Math.min(S.W*0.42,Math.max(S.W*0.3,S.W*frac*1.1));
+    const bh=Math.min(S.H*0.92,(S.W*S.H*frac)/bw);
+    const x0=S.W*0.04,top=S.H-bh;
+    let row=0;
+    for(let y=S.H-s*0.6;y>top;y-=s*0.87,row++){
+      for(let x=x0+(row%2)*s*0.5;x<x0+bw;x+=s){
+        S.add(x+(Math.random()-0.5)*0.5,y,0,0);
+      }
+    }
+  };
+  function buildGrid(){
+    const h=S.h,cols=S.cols,head=S.head,next=S.next;head.fill(-1);
+    for(let i=0;i<S.n;i++){
+      let cx=(S.px[i]/h)|0,cy=(S.py[i]/h)|0;
+      if(cx<0)cx=0;if(cy<0)cy=0;if(cx>=cols)cx=cols-1;if(cy>=S.rows)cy=S.rows-1;
+      const c=cy*cols+cx;next[i]=head[c];head[c]=i;
+    }
+  }
+  S.shake=function(a){const h=S.h;for(let i=0;i<S.n;i++){S.vx[i]+=(Math.random()-0.5)*h*a;S.vy[i]+=(Math.random()-0.7)*h*a;}};
+  S.step=function(){
+    const n=S.n,h=S.h,px=S.px,py=S.py,vx=S.vx,vy=S.vy,ox=S.ox,oy=S.oy,P=S.p;
+    const sc=h/28;
+    const g=0.16*sc*S.gStrength;
+    const gx=S.gx*g,gy=S.gy*g;
+    const pt=S.ptr;const R=h*3.2,R2=R*R;
+    const maxV=h*P.maxV;
+    for(let i=0;i<n;i++){
+      let ux,uy;
+      if(S.gMode==='center'){const dx=S.W*0.5-px[i],dy=S.H*0.5-py[i],d=Math.sqrt(dx*dx+dy*dy)+1;const gg=g*0.3*Math.min(1,d/(h*2));ux=vx[i]+dx/d*gg;uy=vy[i]+dy/d*gg;}
+      else if(S.gMode==='zero'){ux=vx[i]*0.995;uy=vy[i]*0.995;}
+      else{ux=vx[i]+gx;uy=vy[i]+gy;}
+      if(pt.active&&pt.tool!=='pour'){
+        const dx=px[i]-pt.x,dy=py[i]-pt.y,d2=dx*dx+dy*dy;
+        if(d2<R2){
+          const d=Math.sqrt(d2)+1e-4,f=1-d/R;
+          if(pt.tool==='stir'){ux+=(pt.vx-ux)*0.3*f;uy+=(pt.vy-uy)*0.3*f;}
+          else if(pt.tool==='swirl'){const s=1.1*sc*f;ux+=(-dy/d)*s-(dx/d)*0.25*sc*f;uy+=(dx/d)*s-(dy/d)*0.25*sc*f;}
+          else if(pt.tool==='repel'){const s=1.6*sc*f*f;ux+=dx/d*s;uy+=dy/d*s;}
+        }
+      }
+      const v2=ux*ux+uy*uy;
+      if(v2>maxV*maxV){const s=maxV/Math.sqrt(v2);ux*=s;uy*=s;}
+      ox[i]=px[i];oy[i]=py[i];px[i]+=ux;py[i]+=uy;
+    }
+    buildGrid();
+    const head=S.head,next=S.next,cols=S.cols,rows=S.rows;
+    const nbJ=S.nbJ,nbQ=S.nbQ,nbX=S.nbX,nbY=S.nbY;
+    const k=P.k,kN=P.kNear,rho0=P.rho0,sig=P.sigma,bet=P.beta;
+    const h2=h*h,ih=1/h;
+    for(let i=0;i<n;i++){
+      const xi=px[i],yi=py[i];
+      let cx=(xi*ih)|0,cy=(yi*ih)|0;
+      let rho=0,rhoN=0,cnt=0;
+      for(let yy=cy-1;yy<=cy+1;yy++){
+        if(yy<0||yy>=rows)continue;
+        for(let xx=cx-1;xx<=cx+1;xx++){
+          if(xx<0||xx>=cols)continue;
+          let j=head[yy*cols+xx];
+          while(j!==-1){
+            if(j!==i){
+              const dx=px[j]-xi,dy=py[j]-yi,d2=dx*dx+dy*dy;
+              if(d2<h2&&cnt<256){
+                const r=Math.sqrt(d2)+1e-5,q=1-r/h;
+                rho+=q*q;rhoN+=q*q*q;
+                nbJ[cnt]=j;nbQ[cnt]=q;nbX[cnt]=dx/r;nbY[cnt]=dy/r;cnt++;
+              }
+            }
+            j=next[j];
+          }
+        }
+      }
+      const Pr=k*(rho-rho0),Pn=kN*rhoN;
+      let dxi=0,dyi=0;
+      const vix=xi-ox[i],viy=yi-oy[i];
+      for(let a=0;a<cnt;a++){
+        const j=nbJ[a],q=nbQ[a],ux=nbX[a],uy=nbY[a];
+        let D=(Pr*q+Pn*q*q)*0.5*h*0.1;
+        // viscosity
+        const u=(vix-(px[j]-ox[j]))*ux+(viy-(py[j]-oy[j]))*uy;
+        if(u>0){D+=Math.min((sig*u+bet*u*u)*q*0.5,u*0.2);}
+        const Dx=D*ux,Dy=D*uy;
+        px[j]+=Dx;py[j]+=Dy;dxi-=Dx;dyi-=Dy;
+      }
+      px[i]+=dxi;py[i]+=dyi;
+      S.sp[i]=cnt;
+    }
+    const m=2,W=S.W-m,H=S.H-m;
+    for(let i=0;i<n;i++){
+      let x=px[i],y=py[i];
+      if(x<m){x=m+Math.random()*0.01;}else if(x>W){x=W-Math.random()*0.01;}
+      if(y<m){y=m+Math.random()*0.01;}else if(y>H){y=H-Math.random()*0.01;}
+      px[i]=x;py[i]=y;
+      vx[i]=x-ox[i];vy[i]=y-oy[i];
+      const s=Math.sqrt(vx[i]*vx[i]+vy[i]*vy[i])/h;
+      S.sp[i]=s;
+    }
+  };
+  return S;
+}
+
+(function(){
+const canvas=document.getElementById('gl');
+const gl=canvas.getContext('webgl2',{antialias:false,alpha:false,premultipliedAlpha:false});
+if(!gl){document.body.insertAdjacentHTML('beforeend','<div class="fallback">This tank needs WebGL2. Try a recent Chrome, Safari or Firefox.</div>');return;}
+const floatOK=!!gl.getExtension('EXT_color_buffer_float')||!!gl.getExtension('EXT_color_buffer_half_float');
+gl.getExtension('OES_texture_float_linear');
+
+const MAXN=2800;
+const S=createSim(MAXN);
+const GM=[['down','Down'],['zero','Zero-G'],['center','Orbit']];let gmi=0,tilt=0,tiltTarget=0;
+const ro=document.getElementById('readout');let roN=-1;
+
+const LIQ={
+  glass:  {name:'Glass',  visc:'1.0 mPa·s',  sim:{k:0.3,kNear:1.5,rho0:3,sigma:0.1,beta:0.05},
+           tint:[0.72,0.94,1.0],tintAmt:0.18,refr:0.075,disp:0.35,metal:0,foam:[1,1,1],glow:0.0,opaque:0},
+  mercury:{name:'Mercury',visc:'1.5 mPa·s',  sim:{k:0.35,kNear:1.2,rho0:3.5,sigma:0.3,beta:0.1},
+           tint:[0.8,0.84,0.88],tintAmt:0.0,refr:0.12,disp:0.05,metal:1,foam:[1,1,1],glow:0.0,opaque:0},
+  jelly:  {name:'Jelly',  visc:'~800 mPa·s', sim:{k:0.35,kNear:1.2,rho0:3.5,sigma:1,beta:0.5},
+           tint:[1.0,0.36,0.58],tintAmt:0.72,refr:0.05,disp:0.15,metal:0,foam:[1,0.85,0.92],glow:0.35,opaque:0},
+  honey:  {name:'Honey',  visc:'~10,000 mPa·s',sim:{k:0.35,kNear:1.2,rho0:3.5,sigma:3,beta:1},
+           tint:[1.0,0.58,0.12],tintAmt:0.85,refr:0.045,disp:0.06,metal:0,foam:[1,0.93,0.7],glow:0.45,opaque:0},
+  milk:   {name:'Milk',   visc:'2 mPa·s',    sim:{k:0.3,kNear:1.5,rho0:3,sigma:0.15,beta:0.06},
+           tint:[1.0,0.98,0.94],tintAmt:0.2,refr:0.02,disp:0.0,metal:0,foam:[1,0.98,0.94],glow:0.0,opaque:1}
+};
+let liq=LIQ.glass;
+const cur={tint:liq.tint.slice(),tintAmt:liq.tintAmt,refr:liq.refr,disp:liq.disp,metal:liq.metal,foam:liq.foam.slice(),glow:liq.glow,opaque:0};
+
+// ---------- shaders ----------
+function sh(type,src){const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(s));return s;}
+function prog(vs,fs){const p=gl.createProgram();gl.attachShader(p,sh(gl.VERTEX_SHADER,vs));gl.attachShader(p,sh(gl.FRAGMENT_SHADER,fs));gl.linkProgram(p);
+  if(!gl.getProgramParameter(p,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(p));
+  const u={};const n=gl.getProgramParameter(p,gl.ACTIVE_UNIFORMS);for(let i=0;i<n;i++){const a=gl.getActiveUniform(p,i);u[a.name]=gl.getUniformLocation(p,a.name);}
+  return {p,u};}
+
+const splat=prog(`#version 300 es
+layout(location=0) in vec2 aPos; layout(location=1) in float aSpeed;
+uniform vec2 uRes; uniform float uSize; out float vS;
+void main(){vec2 c=aPos/uRes*2.0-1.0;c.y=-c.y;gl_Position=vec4(c,0.0,1.0);gl_PointSize=uSize;vS=aSpeed;}`,
+`#version 300 es
+precision highp float; in float vS; uniform float uAmp; out vec4 o;
+void main(){vec2 p=gl_PointCoord*2.0-1.0;float d=dot(p,p);if(d>1.0)discard;float w=1.0-d;w=w*w*w*uAmp;o=vec4(w,w*vS,0.0,0.0);}`);
+
+const quadVS=`#version 300 es
+const vec2 v[3]=vec2[3](vec2(-1.,-1.),vec2(3.,-1.),vec2(-1.,3.));
+void main(){gl_Position=vec4(v[gl_VertexID],0.,1.);}`;
+
+const comp=prog(quadVS,`#version 300 es
+precision highp float;
+uniform sampler2D uField,uBg; uniform vec2 uRes,uTx; uniform float uT,uTime;
+uniform vec3 uTint,uFoam; uniform float uTintAmt,uRefr,uDisp,uMetal,uGlow,uOpaque;
+out vec4 o;
+float F(vec2 uv){return texture(uField,uv).r/uT;}
+float S(vec2 uv){float v=F(uv);return smoothstep(0.35,3.2,v)+0.22*log(max(v,0.35));}
+vec3 bg(vec2 uv){return texture(uBg,clamp(uv,vec2(0.001),vec2(0.999))).rgb;}
+void main(){
+  vec2 uv=gl_FragCoord.xy/uRes;
+  vec4 fs=texture(uField,uv);
+  float f=fs.r/uT;
+  float aa=fwidth(f)*1.2+0.02;
+  float m=smoothstep(1.0-aa,1.0+aa,f);
+  // drop shadow + contact darkening on the backdrop
+  float shd=smoothstep(0.4,2.5,F(uv+vec2(-0.004,0.010)*vec2(uRes.y/uRes.x,1.0)));
+  vec3 back=bg(uv)*(1.0-0.38*shd);
+  if(m<=0.001){
+    // faint caustic glow just outside the surface
+    float halo=smoothstep(0.25,1.0,f)*(1.0-m);
+    back+=uTint*halo*0.06*(1.0-uMetal);
+    o=vec4(back,1.0);return;
+  }
+  vec2 e=uTx*1.5;
+  float gx=S(uv+vec2(e.x,0.))-S(uv-vec2(e.x,0.));
+  float gy=S(uv+vec2(0.,e.y))-S(uv-vec2(0.,e.y));
+  vec3 n=normalize(vec3(-gx*3.2,-gy*3.2,1.0));
+  float thick=smoothstep(1.0,7.0,f);
+  vec2 off=n.xy*uRefr*(0.35+0.9*thick);
+  off.x*=uRes.y/uRes.x;
+  vec3 refr;
+  refr.r=bg(uv-off*(1.0+uDisp)).r;
+  refr.g=bg(uv-off).g;
+  refr.b=bg(uv-off*(1.0-uDisp)).b;
+  // magnify slightly under thick liquid, like a lens
+  vec3 lens=bg(uv-off*0.4-(uv-0.5)*0.03*thick);
+  refr=mix(refr,lens,0.25);
+  float tAmt=uTintAmt*(0.35+0.65*thick);
+  vec3 col=mix(refr,refr*uTint*1.25,tAmt)+uTint*uGlow*0.12*thick;
+  // lighting
+  vec3 L=normalize(vec3(-0.45,0.65,0.75));
+  vec3 V=vec3(0.,0.,1.);
+  vec3 H=normalize(L+V);
+  float ndh=max(dot(n,H),0.0);
+  float spec=pow(ndh,140.0)*2.2+pow(ndh,24.0)*0.25;
+  float fres=pow(1.0-max(n.z,0.0),2.0);
+  float rim=smoothstep(1.0,1.35,f)*(1.0-smoothstep(1.35,2.4,f));
+  // chrome / mercury
+  vec2 rv=n.xy*0.35+vec2(0.0,0.08);
+  vec3 env=bg(uv+rv*vec2(uRes.y/uRes.x,1.0));
+  float envL=dot(env,vec3(0.3,0.55,0.15));
+  // studio reflection: bright sky above a dark horizon, indexed by surface tilt
+  float r=n.y*1.6+uv.y*0.55+n.x*0.25;
+  float studio=0.10+0.85*smoothstep(0.25,0.75,r)-0.55*smoothstep(0.85,1.15,r)+0.6*smoothstep(1.2,1.6,r);
+  studio+=0.35*smoothstep(-0.2,-0.9,r);
+  vec3 chrome=vec3(studio)*vec3(0.9,0.94,0.98);
+  chrome+=envL*1.6*vec3(0.95,0.98,1.0)+env*0.25;
+  chrome=mix(chrome,chrome*chrome*1.4,0.35);
+  col=mix(col,chrome,uMetal);
+  // milk: opaque, soft subsurface look, satin rather than glassy
+  float diff=max(dot(n,L),0.0);
+  float sss=smoothstep(1.0,4.0,f);
+  vec3 creamCol=uTint*(0.72+0.3*diff)*(0.88+0.12*sss);
+  creamCol+=vec3(1.0,0.97,0.9)*pow(ndh,30.0)*0.18;
+  creamCol=mix(creamCol*vec3(0.93,0.86,0.76),creamCol,smoothstep(1.0,1.6,f));
+  col=mix(col,creamCol,uOpaque);
+  // fresnel sheen
+  col+=(1.0-uOpaque*0.75)*fres*mix(vec3(0.75,0.9,1.0)*0.55,vec3(0.9,0.95,1.0)*0.35,uMetal);
+  col+=spec*vec3(1.0,0.99,0.96)*(1.0-uOpaque*0.55);
+  // dark refracted edge line (thin meniscus)
+  float edge=1.0-smoothstep(1.0,1.18,f);
+  col*=1.0-0.35*edge*(1.0-uMetal*0.5);
+  col+=rim*0.06*(1.0-uMetal);
+  // foam on fast-moving liquid
+  float spd=fs.g/max(fs.r,1e-4);
+  float foam=smoothstep(0.2,0.55,spd)*(1.0-thick*0.8);
+  col=mix(col,uFoam*(0.85+0.3*n.z),foam*0.45);
+  o=vec4(mix(back,col,m),1.0);
+}`);
+
+// ---------- buffers ----------
+const vao=gl.createVertexArray();gl.bindVertexArray(vao);
+const posBuf=gl.createBuffer(),spdBuf=gl.createBuffer();
+const posData=new Float32Array(MAXN*2);
+gl.bindBuffer(gl.ARRAY_BUFFER,posBuf);gl.bufferData(gl.ARRAY_BUFFER,posData.byteLength,gl.DYNAMIC_DRAW);
+gl.enableVertexAttribArray(0);gl.vertexAttribPointer(0,2,gl.FLOAT,false,0,0);
+gl.bindBuffer(gl.ARRAY_BUFFER,spdBuf);gl.bufferData(gl.ARRAY_BUFFER,MAXN*4,gl.DYNAMIC_DRAW);
+gl.enableVertexAttribArray(1);gl.vertexAttribPointer(1,1,gl.FLOAT,false,0,0);
+const emptyVao=gl.createVertexArray();
+
+let fieldTex=null,fbo=null,fw=0,fh=0;
+const AMP=floatOK?1.0:0.09,TH=floatOK?0.55:0.05;
+function makeField(w,h){
+  if(fieldTex)gl.deleteTexture(fieldTex);if(fbo)gl.deleteFramebuffer(fbo);
+  fieldTex=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,fieldTex);
+  if(floatOK)gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA16F,w,h,0,gl.RGBA,gl.HALF_FLOAT,null);
+  else gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA8,w,h,0,gl.RGBA,gl.UNSIGNED_BYTE,null);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+  fbo=gl.createFramebuffer();gl.bindFramebuffer(gl.FRAMEBUFFER,fbo);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,fieldTex,0);
+  gl.bindFramebuffer(gl.FRAMEBUFFER,null);fw=w;fh=h;
+}
+
+// ---------- backdrop painted on a 2D canvas, refracted by the liquid ----------
+const bgCanvas=document.createElement('canvas');const bgTex=gl.createTexture();
+function paintBg(){
+  const W=canvas.width,H=canvas.height,d=dpr;bgCanvas.width=W;bgCanvas.height=H;
+  const c=bgCanvas.getContext('2d');
+  const g=c.createLinearGradient(0,0,W*0.3,H);g.addColorStop(0,'#13212b');g.addColorStop(1,'#0a1116');
+  c.fillStyle=g;c.fillRect(0,0,W,H);
+  const blob=(x,y,r,col)=>{const rg=c.createRadialGradient(x,y,0,x,y,r);rg.addColorStop(0,col);rg.addColorStop(1,'rgba(0,0,0,0)');c.fillStyle=rg;c.fillRect(0,0,W,H);};
+  blob(W*0.82,H*0.2,Math.max(W,H)*0.45,'rgba(255,122,89,0.20)');
+  blob(W*0.15,H*0.85,Math.max(W,H)*0.5,'rgba(95,211,198,0.20)');
+  blob(W*0.55,H*0.6,Math.max(W,H)*0.35,'rgba(138,125,255,0.16)');
+  // fine grid
+  const step=32*d;c.strokeStyle='rgba(190,230,240,0.06)';c.lineWidth=1;c.beginPath();
+  for(let x=(W%step)/2;x<W;x+=step){c.moveTo(x+.5,0);c.lineTo(x+.5,H);}
+  for(let y=H%step;y<H;y+=step){c.moveTo(0,y+.5);c.lineTo(W,y+.5);}c.stroke();
+  // giant outlined word
+  const fs=Math.min(W*0.42,H*0.62);
+  c.font=`800 ${fs}px Syne, "Avenir Next", system-ui, sans-serif`;c.textAlign='right';c.textBaseline='alphabetic';
+  c.fillStyle='rgba(235,248,250,0.05)';c.fillText('lab',W-40*d,H-H*0.16);
+  c.lineWidth=1.5*d;c.strokeStyle='rgba(235,248,250,0.16)';c.strokeText('lab',W-40*d,H-H*0.16);
+  // beaker graduations on the left wall: 1000 mL tank
+  const x0=10*d,bot=H-8*d,top=H*0.12;c.strokeStyle='rgba(235,248,250,0.42)';c.fillStyle='rgba(235,248,250,0.55)';
+  c.font=`500 ${10.5*d}px "IBM Plex Mono", ui-monospace, monospace`;c.textAlign='left';c.textBaseline='middle';
+  c.beginPath();
+  for(let i=0;i<=40;i++){const y=bot-(bot-top)*i/40;const major=i%8===0,mid=i%4===0;const len=(major?22:mid?14:7)*d;
+    c.moveTo(x0,Math.round(y)+.5);c.lineTo(x0+len,Math.round(y)+.5);
+    if(major&&i>0)c.fillText(`${i*25} mL`,x0+len+6*d,y);}
+  c.lineWidth=1*d;c.stroke();
+  // small specimen label, bottom-right
+  c.textAlign='right';c.fillStyle='rgba(235,248,250,0.35)';c.font=`400 ${10*d}px "IBM Plex Mono", ui-monospace, monospace`;
+  c.fillText('TANK 01 · 20 °C · 1 atm',W-42*d,H-H*0.16+18*d);
+  gl.bindTexture(gl.TEXTURE_2D,bgTex);gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,true);
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,bgCanvas);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,false);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+}
+
+// ---------- sizing ----------
+let dpr=1,first=true;
+function resize(){
+  dpr=Math.min(window.devicePixelRatio||1,2);
+  const w=canvas.clientWidth||innerWidth,h=canvas.clientHeight||innerHeight;
+  canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);
+  makeField(Math.max(1,canvas.width>>1),Math.max(1,canvas.height>>1));
+  S.resize(w,h);
+  if(first){first=false;S.fill(fillFrac());}
+  paintBg();
+}
+function fillFrac(){return 0.36;}
+window.addEventListener('resize',resize);
+resize();
+if(document.fonts&&document.fonts.load){Promise.all([document.fonts.load('800 100px Syne'),document.fonts.load('500 12px "IBM Plex Mono"')]).then(paintBg).catch(()=>{});}
+
+// ---------- liquids ----------
+function setLiquid(key){
+  liq=LIQ[key];Object.assign(S.p,liq.sim);
+  document.querySelectorAll('#liquids button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.liq===key)));
+  updateReadout();
+}
+setLiquid('glass');
+
+// ---------- input ----------
+const ptr=S.ptr;let lastX=0,lastY=0,moveX=0,moveY=0,pid=null;
+function pos(e){const r=canvas.getBoundingClientRect();return [e.clientX-r.left,e.clientY-r.top];}
+canvas.addEventListener('pointerdown',e=>{pid=e.pointerId;canvas.setPointerCapture(pid);const [x,y]=pos(e);ptr.x=lastX=x;ptr.y=lastY=y;moveX=moveY=0;ptr.active=true;});
+canvas.addEventListener('pointermove',e=>{if(e.pointerId!==pid||!ptr.active)return;const [x,y]=pos(e);moveX+=x-lastX;moveY+=y-lastY;lastX=x;lastY=y;});
+const up=e=>{if(e.pointerId!==pid)return;ptr.active=false;pid=null;};
+canvas.addEventListener('pointerup',up);canvas.addEventListener('pointercancel',up);
+canvas.addEventListener('contextmenu',e=>e.preventDefault());
+
+document.querySelectorAll('#tools button').forEach(b=>b.addEventListener('click',()=>{
+  ptr.tool=b.dataset.tool;document.querySelectorAll('#tools button').forEach(x=>x.setAttribute('aria-pressed',String(x===b)));}));
+document.querySelectorAll('#liquids button').forEach(b=>b.addEventListener('click',()=>setLiquid(b.dataset.liq)));
+const gravBtn=document.getElementById('grav');
+
+gravBtn.addEventListener('click',()=>{gmi=(gmi+1)%3;S.gMode=GM[gmi][0];gravBtn.textContent='Gravity: '+GM[gmi][1];if(S.gMode==='zero')S.shake(0.08);updateReadout();});
+document.getElementById('shake').addEventListener('click',()=>S.shake(0.35));
+document.getElementById('reset').addEventListener('click',()=>{S.fill(fillFrac());});
+const keys={};
+addEventListener('keydown',e=>{
+  if(e.target.closest&&e.target.closest('button')&&(e.key===' '||e.key==='Enter'))return;
+  keys[e.key]=true;
+  if(e.key===' '){e.preventDefault();S.shake(0.35);}
+  const k={'1':'glass','2':'mercury','3':'jelly','4':'honey','5':'milk'}[e.key];if(k)setLiquid(k);
+});
+addEventListener('keyup',e=>{keys[e.key]=false;});
+
+// ---------- readout ----------
+function updateReadout(){
+  const vol=Math.round(S.n/MAXN*1000/5)*5;
+  ro.textContent=`${liq.name} · ${liq.visc} · ${vol} mL${S.n>=MAXN?' · full':''} · g ${S.gMode==='down'?Math.round(-tilt*57.3)+'°':GM[gmi][1].toLowerCase()}`;
+}
+
+// ---------- loop ----------
+let lastT=performance.now(),time=0,pourAcc=0,fc=0;
+function frame(t){
+  const dt=Math.min(50,t-lastT);lastT=t;time+=dt/1000;
+  // tilt with arrows / A D
+  const tl=(keys.ArrowLeft||keys.a||keys.A)?1:0,tr=(keys.ArrowRight||keys.d||keys.D)?1:0;
+  if(tl||tr)tiltTarget=Math.max(-1.1,Math.min(1.1,tiltTarget+(tl-tr)*dt*0.0016));
+  else tiltTarget*=Math.pow(0.5,dt/600);
+  tilt+=(tiltTarget-tilt)*Math.min(1,dt/120);
+  S.gx=-Math.sin(tilt);S.gy=Math.cos(tilt);
+
+  const sub=2;
+  ptr.x=lastX-moveX;ptr.y=lastY-moveY;ptr.vx=moveX/sub;ptr.vy=moveY/sub;moveX=moveY=0;
+  if(ptr.active&&ptr.tool==='pour'){
+    pourAcc+=dt*0.25;const s=S.h*0.42;
+    while(pourAcc>=1&&S.n<MAXN){pourAcc-=1;const a=Math.random()*Math.PI*2,r=Math.random()*s*1.6;
+      S.add(ptr.x+Math.cos(a)*r,ptr.y+Math.sin(a)*r,ptr.vx*0.5,ptr.vy*0.5+S.h*0.05);}
+    if(S.n>=MAXN)pourAcc=0;
+  }
+  for(let i=0;i<sub;i++){S.step();ptr.x+=ptr.vx;ptr.y+=ptr.vy;}
+  ptr.x=lastX;ptr.y=lastY;
+
+  // ease render params toward the chosen liquid
+  const k=1-Math.pow(0.002,dt/1000);
+  for(let i=0;i<3;i++){cur.tint[i]+=(liq.tint[i]-cur.tint[i])*k;cur.foam[i]+=(liq.foam[i]-cur.foam[i])*k;}
+  for(const p of ['tintAmt','refr','disp','metal','glow','opaque'])cur[p]+=(liq[p]-cur[p])*k;
+
+  // upload particles
+  const n=S.n;
+  for(let i=0;i<n;i++){posData[2*i]=S.px[i];posData[2*i+1]=S.py[i];}
+  gl.bindVertexArray(vao);
+  gl.bindBuffer(gl.ARRAY_BUFFER,posBuf);gl.bufferSubData(gl.ARRAY_BUFFER,0,posData,0,n*2);
+  gl.bindBuffer(gl.ARRAY_BUFFER,spdBuf);gl.bufferSubData(gl.ARRAY_BUFFER,0,S.sp,0,n);
+
+  // pass 1: splat density field
+  gl.bindFramebuffer(gl.FRAMEBUFFER,fbo);gl.viewport(0,0,fw,fh);
+  gl.clearColor(0,0,0,0);gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.enable(gl.BLEND);gl.blendFunc(gl.ONE,gl.ONE);
+  gl.useProgram(splat.p);
+  gl.uniform2f(splat.u.uRes,S.W,S.H);
+  gl.uniform1f(splat.u.uSize,2.3*S.h*(fw/S.W));
+  gl.uniform1f(splat.u.uAmp,AMP);
+  gl.drawArrays(gl.POINTS,0,n);
+  gl.disable(gl.BLEND);
+
+  // pass 2: glass composite
+  gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.viewport(0,0,canvas.width,canvas.height);
+  gl.bindVertexArray(emptyVao);
+  gl.useProgram(comp.p);
+  gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,fieldTex);gl.uniform1i(comp.u.uField,0);
+  gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,bgTex);gl.uniform1i(comp.u.uBg,1);
+  gl.uniform2f(comp.u.uRes,canvas.width,canvas.height);
+  gl.uniform2f(comp.u.uTx,1/fw,1/fh);
+  gl.uniform1f(comp.u.uT,TH);
+  if(comp.u.uTime)gl.uniform1f(comp.u.uTime,time);
+  gl.uniform3fv(comp.u.uTint,cur.tint);gl.uniform3fv(comp.u.uFoam,cur.foam);
+  gl.uniform1f(comp.u.uTintAmt,cur.tintAmt);gl.uniform1f(comp.u.uRefr,cur.refr);
+  gl.uniform1f(comp.u.uDisp,cur.disp);gl.uniform1f(comp.u.uMetal,cur.metal);gl.uniform1f(comp.u.uGlow,cur.glow);gl.uniform1f(comp.u.uOpaque,cur.opaque);
+  gl.drawArrays(gl.TRIANGLES,0,3);
+
+  if(n!==roN||(++fc%15===0)){roN=n;updateReadout();}
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+})();
+</script>
+
+</body></html>
